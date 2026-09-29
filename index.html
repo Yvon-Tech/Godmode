@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#07070f">
+<title>Doxami Ticketing</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ============================================================
+     ÉCRAN DE CHARGEMENT
+============================================================ -->
+<div id="boot-screen">
+  <div class="boot-box">
+    <div class="brand-mark big">D</div>
+    <div class="boot-text">Chargement…</div>
+  </div>
+</div>
+
+<!-- ============================================================
+     ÉCRAN AUTHENTIFICATION
+============================================================ -->
+<div id="auth-screen" class="hidden">
+  <div class="auth-card">
+    <div class="brand">
+      <div class="brand-mark">D</div>
+      <div class="brand-text">
+        <h1>Doxami Ticketing</h1>
+        <p>Générez, imprimez, scannez.</p>
+      </div>
+    </div>
+    <div class="auth-tabs">
+      <button class="auth-tab active" data-tab="login">Connexion</button>
+      <button class="auth-tab" data-tab="signup">Inscription</button>
+    </div>
+    <form id="auth-form">
+      <div class="field hidden" id="field-name">
+        <label for="auth-name">Nom complet</label>
+        <input type="text" id="auth-name" placeholder="Ex : Amadou Diallo" autocomplete="name">
+      </div>
+      <div class="field">
+        <label for="auth-email">Adresse e-mail</label>
+        <input type="email" id="auth-email" placeholder="vous@exemple.com" required autocomplete="email">
+      </div>
+      <div class="field">
+        <label for="auth-password">Mot de passe</label>
+        <input type="password" id="auth-password" placeholder="••••••••" required minlength="6" autocomplete="current-password">
+      </div>
+      <button type="submit" class="btn-primary" id="auth-submit">Se connecter</button>
+    </form>
+    <p class="auth-note" id="auth-message"></p>
+  </div>
+</div>
+
+<!-- ============================================================
+     APPLICATION
+============================================================ -->
+<div id="app" class="hidden">
+  <header class="app-header">
+    <div class="header-brand" id="header-brand">
+      <div class="brand-mark">D</div>
+      <span>Doxami Ticketing</span>
+    </div>
+    <div class="header-user">
+      <div class="user-chip">
+        <div class="user-avatar" id="header-avatar">A</div>
+        <span class="user-name" id="header-username">Utilisateur</span>
+      </div>
+      <button class="btn-ghost" id="btn-logout">Déconnexion</button>
+    </div>
+  </header>
+
+  <!-- VUE : DASHBOARD -->
+  <section class="view" id="view-dashboard">
+    <div class="view-head">
+      <div>
+        <h2>Mes événements</h2>
+        <p>Gérez vos projets de billetterie et contrôlez les entrées.</p>
+      </div>
+    </div>
+    <div class="events-grid" id="events-grid"></div>
+  </section>
+
+  <!-- VUE : WIZARD -->
+  <section class="view hidden" id="view-wizard">
+    <div class="wizard-head">
+      <h2 class="wizard-title">Nouvel événement</h2>
+      <div class="wizard-steps" id="wizard-steps">
+        <div class="wizard-step-indicator active" data-step="1">
+          <div class="num">1</div><span class="label">Nom</span>
+        </div>
+        <div class="wizard-step-indicator" data-step="2">
+          <div class="num">2</div><span class="label">Modèle</span>
+        </div>
+        <div class="wizard-step-indicator" data-step="3">
+          <div class="num">3</div><span class="label">Zones</span>
+        </div>
+        <div class="wizard-step-indicator" data-step="4">
+          <div class="num">4</div><span class="label">Billets</span>
+        </div>
+        <div class="wizard-step-indicator" data-step="5">
+          <div class="num">5</div><span class="label">Génération</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 1 -->
+    <div class="wizard-panel" data-panel="1">
+      <h3>Nom de l'événement</h3>
+      <p class="panel-desc">Donnez un nom à l'événement. Le préfixe sert à numéroter les billets (ex : DCF-0001).</p>
+      <form id="wiz-form-1">
+        <div class="form-grid">
+          <div class="field full">
+            <label>Nom de l'événement</label>
+            <input type="text" id="wz-name" placeholder="Ex : Doxami Care Fest" required autofocus maxlength="80">
+          </div>
+          <div class="field full">
+            <label>Préfixe des numéros</label>
+            <input type="text" id="wz-prefix" placeholder="DCF" maxlength="6" style="text-transform:uppercase" autocomplete="off">
+            <small class="field-hint">2 à 6 caractères (lettres A-Z et chiffres). Proposé automatiquement, modifiable.</small>
+          </div>
+        </div>
+        <div class="wizard-actions">
+          <button type="button" class="btn-secondary" id="wiz-cancel">Annuler</button>
+          <button type="submit" class="btn-primary" style="width:auto;padding:13px 32px">Continuer →</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- STEP 2 -->
+    <div class="wizard-panel hidden" data-panel="2">
+      <h3>Importer le modèle</h3>
+      <p class="panel-desc">Chargez votre billet original — PDF, JPG ou PNG, sans QR code.</p>
+      <div class="upload-zone" id="upload-zone">
+        <div class="upload-icon">⬆</div>
+        <h4>Cliquez ou glissez votre fichier ici</h4>
+        <p>Le modèle ne sera pas modifié. Le système y incrustera uniquement le QR et le numéro.</p>
+        <div class="formats">
+          <span class="format-pill">PDF</span>
+          <span class="format-pill">JPG</span>
+          <span class="format-pill">PNG</span>
+        </div>
+      </div>
+      <input type="file" id="wz-file" accept=".pdf,.jpg,.jpeg,.png" class="hidden">
+      <div id="model-info" class="hidden"></div>
+      <div class="wizard-actions">
+        <button type="button" class="btn-secondary" id="wiz-back-2">← Retour</button>
+        <button type="button" class="btn-primary" id="wz-next-2" style="width:auto;padding:13px 32px" disabled>Continuer →</button>
+      </div>
+    </div>
+
+    <!-- STEP 3 -->
+    <div class="wizard-panel hidden" data-panel="3">
+      <h3>Placement des zones</h3>
+      <p class="panel-desc">Positionnez le cadre « Zone QR » sur l'emplacement blanc et le cadre « Zone numéro » sous le QR.</p>
+      <div class="zone-editor-wrap">
+        <div class="zone-canvas-outer">
+          <div class="zone-canvas" id="zone-canvas">
+            <img id="zone-model-img" alt="modèle">
+            <div class="zone-box" id="zone-qr" data-zone="qr">
+              <div class="zone-label">ZONE QR</div>
+              <div class="zone-handle"></div>
+            </div>
+            <div class="zone-box num" id="zone-num" data-zone="num">
+              <div class="zone-label">ZONE NUMÉRO</div>
+              <div class="zone-handle"></div>
+            </div>
+          </div>
+        </div>
+        <div class="zone-sidebar">
+          <div class="zone-info-card">
+            <h5><span class="dot qr"></span> Zone QR</h5>
+            <p id="info-qr"></p>
+          </div>
+          <div class="zone-info-card">
+            <h5><span class="dot num"></span> Zone numéro</h5>
+            <p id="info-num"></p>
+          </div>
+          <div class="zone-tip">
+            💡 Glissez les cadres pour les déplacer. Poignée en bas à droite pour redimensionner. Le QR est toujours dessiné carré et centré dans sa zone : laissez un peu de blanc autour.
+          </div>
+        </div>
+      </div>
+      <div class="wizard-actions">
+        <button type="button" class="btn-secondary" id="wiz-back-3">← Retour</button>
+        <button type="button" class="btn-primary" id="wiz-next-3" style="width:auto;padding:13px 32px">Continuer →</button>
+      </div>
+    </div>
+
+    <!-- STEP 4 -->
+    <div class="wizard-panel hidden" data-panel="4">
+      <h3>Nombre et numérotation</h3>
+      <p class="panel-desc">Définissez combien de billets générer et à partir de quel numéro commencer.</p>
+      <form id="wiz-form-4">
+        <div class="form-grid">
+          <div class="field">
+            <label>Nombre de billets</label>
+            <input type="number" id="wz-count" value="200" min="1" max="5000" required>
+          </div>
+          <div class="field">
+            <label>Numéro de départ</label>
+            <input type="number" id="wz-start" value="1" min="1" max="999999" required>
+          </div>
+          <div class="field full">
+            <label>Aperçu de la numérotation</label>
+            <div id="num-preview" class="preview-line">—</div>
+          </div>
+        </div>
+        <div class="wizard-actions">
+          <button type="button" class="btn-secondary" id="wiz-back-4">← Retour</button>
+          <button type="submit" class="btn-primary" style="width:auto;padding:13px 32px">Aperçu →</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- STEP 5 -->
+    <div class="wizard-panel hidden" data-panel="5">
+      <h3>Aperçu et génération</h3>
+      <p class="panel-desc">Voici un aperçu du premier billet. Le QR et le numéro sont les seuls éléments qui changeront.</p>
+      <div class="preview-wrap">
+        <div class="preview-ticket-box" id="preview-box">
+          <div style="color:var(--text-dim);font-size:13px">Composition du billet…</div>
+        </div>
+        <div class="preview-summary">
+          <h4>Résumé</h4>
+          <div class="summary-row"><span>Événement</span><b id="sum-name">—</b></div>
+          <div class="summary-row"><span>Billets</span><b id="sum-count">—</b></div>
+          <div class="summary-row"><span>Premier</span><b id="sum-first">—</b></div>
+          <div class="summary-row"><span>Dernier</span><b id="sum-last">—</b></div>
+        </div>
+      </div>
+      <div class="wizard-actions">
+        <button type="button" class="btn-secondary" id="wiz-back-5">← Retour</button>
+        <button type="button" class="btn-primary" id="wiz-generate" style="width:auto;padding:13px 32px">✦ Générer les billets</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- VUE : ÉVÉNEMENT -->
+  <section class="view hidden" id="view-event">
+    <div class="detail-head">
+      <button class="btn-back" id="btn-back-dashboard">←</button>
+      <div class="detail-title">
+        <h2 id="ev-title">Événement</h2>
+        <p id="ev-subtitle">—</p>
+      </div>
+      <button class="btn-ghost" id="btn-export-pdf">📄 Télécharger le PDF</button>
+      <button class="btn-ghost danger" id="btn-delete-event" title="Supprimer l'événement">🗑</button>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="stats">📊 Statistiques</button>
+      <button class="tab" data-tab="scan">📷 Scanner</button>
+    </div>
+
+    <!-- Onglet stats -->
+    <div class="tab-content" id="tab-stats">
+      <div class="stats-grid">
+        <div class="stat-card" style="--accent-color:#6d5efc">
+          <div class="stat-label">🎫 Billets générés</div>
+          <div class="stat-value" id="stat-total">0</div>
+          <div class="stat-sub">Total du stock</div>
+        </div>
+        <div class="stat-card" style="--accent-color:#10b981">
+          <div class="stat-label">🟢 Entrées</div>
+          <div class="stat-value" id="stat-used">0</div>
+          <div class="stat-sub">Billets scannés</div>
+        </div>
+        <div class="stat-card" style="--accent-color:#f59e0b">
+          <div class="stat-label">🟡 Disponibles</div>
+          <div class="stat-value" id="stat-valid">0</div>
+          <div class="stat-sub">Non encore scannés</div>
+        </div>
+      </div>
+      <div class="progress-section">
+        <div class="progress-head">
+          <h4>Taux de présence</h4>
+          <div class="progress-pct" id="progress-pct">0%</div>
+        </div>
+        <div class="progress-bar-lg"><div class="fill" id="progress-fill"></div></div>
+      </div>
+      <div class="panel" style="margin-bottom:20px">
+        <div class="panel-head"><h4>Ajouter des billets</h4></div>
+        <div style="padding:20px">
+          <p style="font-size:13px;color:var(--text-dim);margin-bottom:14px">
+            Ajoutez des billets au stock existant.
+          </p>
+          <div class="input-row">
+            <input type="number" id="add-count" placeholder="Nombre à ajouter" min="1" value="10">
+            <button class="btn-scan" id="btn-add-tickets">+ Ajouter</button>
+          </div>
+        </div>
+      </div>
+      <div class="panel">
+        <div class="panel-head">
+          <h4>Liste des billets</h4>
+          <span class="count" id="tickets-count">0</span>
+        </div>
+        <div class="table-filters">
+          <input type="search" id="tk-search" placeholder="Rechercher un numéro…" autocomplete="off">
+          <select id="tk-status">
+            <option value="all">Tous</option>
+            <option value="valid">Valides</option>
+            <option value="used">Utilisés</option>
+          </select>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Numéro</th>
+                <th>Token</th>
+                <th>Statut</th>
+                <th>Scanné le</th>
+              </tr>
+            </thead>
+            <tbody id="tickets-tbody"></tbody>
+          </table>
+          <div class="empty-history hidden" id="tickets-empty">Aucun billet trouvé.</div>
+        </div>
+        <div class="table-more hidden" id="tickets-more-wrap">
+          <button class="btn-secondary" id="btn-tickets-more">Charger plus</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Onglet scan -->
+    <div class="tab-content hidden" id="tab-scan">
+      <div class="scanner-wrap">
+        <div class="viewfinder" id="viewfinder">
+          <video id="scan-video" playsinline muted autoplay></video>
+          <div class="corner tl"></div>
+          <div class="corner tr"></div>
+          <div class="corner bl"></div>
+          <div class="corner br"></div>
+          <div class="scanline"></div>
+          <div class="qr-hint">
+            <span class="big">▣</span>
+            En attente d'un billet…
+          </div>
+          <div class="scan-result" id="scan-result">
+            <div class="result-inner">
+              <div class="result-icon" id="result-icon">✓</div>
+              <div class="result-title" id="result-title">VALIDE</div>
+              <div class="result-sub" id="result-sub">—</div>
+            </div>
+          </div>
+        </div>
+        <div class="scan-controls">
+          <h4>Contrôle</h4>
+          <p class="desc">Activez la caméra pour scanner le QR, utilisez une douchette, ou saisissez un numéro.</p>
+          <button class="btn-scan cam-btn" id="btn-camera">📷 Activer la caméra</button>
+          <div class="scan-counter" id="scan-counter">— entrées</div>
+          <div class="input-row">
+            <input type="text" id="scan-input" placeholder="Ex : DCF-0042" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            <button class="btn-scan" id="btn-scan-input">Valider</button>
+          </div>
+        </div>
+        <div class="scan-history">
+          <h4>Derniers scans</h4>
+          <div id="history-list"><div class="empty-history">Aucun scan pour le moment.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<!-- ============================================================
+     OVERLAY GÉNÉRATION
+============================================================ -->
+<div class="gen-overlay" id="gen-overlay">
+  <div class="gen-box">
+    <div class="spinner"></div>
+    <div class="gen-title" id="gen-title">Traitement…</div>
+    <div class="gen-sub" id="gen-sub">Veuillez patienter</div>
+    <div class="gen-bar"><div class="fill" id="gen-fill"></div></div>
+  </div>
+</div>
+
+<!-- ============================================================
+     MODAL SUCCÈS
+============================================================ -->
+<div class="modal-overlay" id="modal-success">
+  <div class="modal" style="text-align:center">
+    <div class="success-check">✓</div>
+    <h3 id="success-title">Billets prêts !</h3>
+    <p class="modal-sub" id="success-sub">—</p>
+    <div class="modal-actions">
+      <button class="btn-secondary" id="btn-success-close">Fermer</button>
+      <button class="btn-primary" style="flex:1" id="btn-success-pdf">📄 Télécharger le PDF</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     TOASTS
+============================================================ -->
+<div id="toast-container"></div>
+
+<!-- ============================================================
+     SCRIPTS
+============================================================ -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.39.0/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+
+<script src="config.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
