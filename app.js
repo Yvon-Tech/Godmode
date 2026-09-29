@@ -1,35 +1,45 @@
 /* ============================================================
-   DOXAMI TICKETING — APPLICATION (version corrigée)
+   DOXAMI TICKETING — APPLICATION
+   Version avec chargement robuste des bibliothèques.
+   - Enveloppé dans un async IIFE qui attend window.__libsReady.
+   - QR : qrcode-generator (remplace qrcode de soldair).
 ============================================================ */
+(async function boot() {
+
+/* ---------- Attente des bibliothèques ---------- */
+if (window.__libsReady) {
+  try { await window.__libsReady; } catch (e) { console.warn('Libs wait error', e); }
+}
 
 /* ---------- Vérification config & bibliothèques ---------- */
-(function checkConfig() {
-  const cfg = window.APP_CONFIG || {};
-  const bad = (v) => !v || /VOTRE[-_]/i.test(v);
-  const fail = (title, html) => {
-    document.body.innerHTML = `
-      <div style="padding:40px;font-family:sans-serif;color:#fff;background:#07070f;min-height:100vh">
-        <h1 style="color:#ef4444">⚠ ${title}</h1>
-        <p style="margin-top:20px;line-height:1.7">${html}</p>
-      </div>`;
-    throw new Error(title);
-  };
-  if (bad(cfg.SUPABASE_URL) || bad(cfg.SUPABASE_ANON_KEY)) {
-    fail('Configuration manquante',
-      `Ouvrez <code style="background:#1e1e2e;padding:2px 8px;border-radius:4px">config.js</code> et renseignez
-       votre <b>SUPABASE_URL</b> et votre <b>SUPABASE_ANON_KEY</b>.<br>
-       Vous les trouverez dans <b>Supabase → Project Settings → API</b>.`);
-  }
-  const missing = [];
-  if (!window.supabase) missing.push('Supabase');
-  if (!window.QRCode) missing.push('QRCode');
-  if (!window.pdfjsLib) missing.push('PDF.js');
-  if (!window.jspdf) missing.push('jsPDF');
-  if (missing.length) {
-    fail('Bibliothèques non chargées',
-      `Impossible de charger : <b>${missing.join(', ')}</b>.<br>Vérifiez votre connexion Internet, puis rechargez la page.`);
-  }
-})();
+const cfg = window.APP_CONFIG || {};
+const bad = (v) => !v || /VOTRE[-_]/i.test(v);
+const fail = (title, html) => {
+  document.body.innerHTML = `
+    <div style="padding:40px;font-family:sans-serif;color:#fff;background:#07070f;min-height:100vh">
+      <h1 style="color:#ef4444">⚠ ${title}</h1>
+      <p style="margin-top:20px;line-height:1.7">${html}</p>
+    </div>`;
+  throw new Error(title);
+};
+if (bad(cfg.SUPABASE_URL) || bad(cfg.SUPABASE_ANON_KEY)) {
+  fail('Configuration manquante',
+    `Ouvrez <code style="background:#1e1e2e;padding:2px 8px;border-radius:4px">config.js</code> et renseignez
+     votre <b>SUPABASE_URL</b> et votre <b>SUPABASE_ANON_KEY</b>.<br>
+     Vous les trouverez dans <b>Supabase → Project Settings → API</b>.`);
+}
+const missing = [];
+if (!window.supabase) missing.push('Supabase');
+if (typeof window.qrcode !== 'function') missing.push('qrcode-generator');
+if (!window.pdfjsLib) missing.push('PDF.js');
+if (!window.jspdf) missing.push('jsPDF');
+if (!window.jsQR) missing.push('jsQR');
+if (missing.length) {
+  fail('Bibliothèques non chargées',
+    `Impossible de charger : <b>${missing.join(', ')}</b>.<br>
+     Vérifiez votre connexion Internet, puis rechargez la page.<br>
+     <small style="color:#8b94ab">Astuce : placez les fichiers .js à côté de index.html pour un fonctionnement hors-ligne.</small>`);
+}
 
 /* ---------- Client Supabase ---------- */
 const { createClient } = window.supabase;
@@ -39,16 +49,15 @@ const sb = createClient(
   { auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true } }
 );
 
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'pdf.worker.min.js';
 
 /* ---------- Constantes ---------- */
-const MODEL_MAX_SIDE = 3000;   // px, plus grand côté du modèle rendu
-const PDF_CHUNK      = 250;    // billets par fichier PDF exporté
-const TICKETS_PAGE   = 100;    // lignes affichées par page dans la liste
-const CREATE_CHUNK   = 500;    // billets créés par appel serveur
-const MAX_TICKETS    = 5000;   // à la création
-const SCAN_COOLDOWN  = 3500;   // ms avant de reprendre le même QR à la caméra
+const MODEL_MAX_SIDE = 3000;
+const PDF_CHUNK      = 250;
+const TICKETS_PAGE   = 100;
+const CREATE_CHUNK   = 500;
+const MAX_TICKETS    = 5000;
+const SCAN_COOLDOWN  = 3500;
 
 /* ============================================================
    ÉTAT GLOBAL
@@ -228,7 +237,7 @@ function feedback(type) {
 /* ============================================================
    DÉMARRAGE — SESSION
 ============================================================ */
-window.addEventListener('DOMContentLoaded', async () => {
+async function initSession() {
   try {
     const { data: { session } } = await sb.auth.getSession();
     if (session) await onSignedIn(session.user);
@@ -243,11 +252,16 @@ window.addEventListener('DOMContentLoaded', async () => {
       resetSession();
       showAuthScreen();
     } else if (event === 'SIGNED_IN' && session?.user) {
-      // setTimeout : évite d'appeler Supabase à l'intérieur du callback (risque de blocage)
       setTimeout(() => onSignedIn(session.user), 0);
     }
   });
-});
+}
+
+if (document.readyState === 'loading') {
+  window.addEventListener('DOMContentLoaded', initSession);
+} else {
+  initSession();
+}
 
 function resetSession() {
   stopCamera();
@@ -260,7 +274,6 @@ function resetSession() {
 }
 
 async function fetchProfile(user) {
-  // Le profil est créé par un trigger SQL : on réessaie brièvement s'il n'est pas encore là.
   for (let i = 0; i < 4; i++) {
     const { data } = await sb.from('profiles').select('*').eq('id', user.id).maybeSingle();
     if (data) return data;
@@ -275,7 +288,7 @@ async function fetchProfile(user) {
 }
 
 async function onSignedIn(user) {
-  if (state.user && state.user.id === user.id) return; // déjà connecté (évite le double appel)
+  if (state.user && state.user.id === user.id) return;
   state.user = user;
 
   try {
@@ -365,11 +378,9 @@ $('auth-form').addEventListener('submit', async (e) => {
       if (error) throw error;
 
       if (!data.session) {
-        // Confirmation par e-mail activée
         msg.textContent = 'Un e-mail de confirmation vous a été envoyé. Vérifiez votre boîte, puis connectez-vous.';
         msg.className = 'auth-note success';
       }
-      // Sinon : l'événement SIGNED_IN ouvre l'application.
     } else {
       const { data, error } = await sb.auth.signInWithPassword({ email, password: pass });
       if (error) throw error;
@@ -451,7 +462,6 @@ async function renderDashboard() {
   const seq = ++dashboardSeq;
   const grid = $('events-grid');
 
-  // --- Données ---
   const statsByEvent = {};
   if (state.events.length > 0) {
     const { data, error } = await sb.rpc('get_events_stats');
@@ -461,7 +471,6 @@ async function renderDashboard() {
     });
   }
 
-  // Miniatures : vignette JPEG, ou modèle si c'est une image (jamais un PDF)
   const thumbPath = (ev) => ev.thumb_path || (!isPdfPath(ev.model_path) ? ev.model_path : null);
   const paths = [...new Set(state.events.map(thumbPath).filter(Boolean))];
   const signedMap = {};
@@ -472,9 +481,8 @@ async function renderDashboard() {
     });
   }
 
-  if (seq !== dashboardSeq) return; // un rendu plus récent a pris le relais
+  if (seq !== dashboardSeq) return;
 
-  // --- Affichage ---
   grid.innerHTML = '';
   if (state.events.length === 0) {
     const empty = document.createElement('div');
@@ -509,7 +517,6 @@ async function renderDashboard() {
         </div>
       </div>
     `;
-    // Si la miniature ne charge pas, on revient aux initiales
     const img = card.querySelector('img');
     if (img) img.addEventListener('error', () => {
       img.parentElement.innerHTML = `<div class="initials">${escapeHtml(ev.prefix || makePrefix(ev.name))}</div>`;
@@ -583,7 +590,6 @@ $('wiz-next-3').addEventListener('click', () => wizardGo(4));
 $('wz-next-2').addEventListener('click', () => wizardGo(3));
 $('wiz-generate').addEventListener('click', generateTickets);
 
-// Préfixe proposé automatiquement tant que l'utilisateur ne l'a pas modifié
 $('wz-name').addEventListener('input', () => {
   if (!wizardData.prefixTouched) $('wz-prefix').value = makePrefix($('wz-name').value);
 });
@@ -641,10 +647,6 @@ fileInput.addEventListener('change', (e) => {
   if (e.target.files[0]) handleModelFile(e.target.files[0]);
 });
 
-/**
- * Transforme un modèle (PDF ou image) en image prête à dessiner.
- * Utilisée à l'import ET à l'export, pour un rendu strictement identique.
- */
 async function renderModel(blob, isPDF) {
   const canvas = document.createElement('canvas');
   let mime = 'image/png';
@@ -676,7 +678,7 @@ async function renderModel(blob, isPDF) {
     canvas.width = Math.round(img.naturalWidth * k);
     canvas.height = Math.round(img.naturalHeight * k);
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#FFFFFF';       // évite un fond noir sur les PNG transparents
+    ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     if (blob.type === 'image/jpeg') mime = 'image/jpeg';
@@ -868,8 +870,6 @@ async function renderPreviewStep() {
 
 /* ============================================================
    COMPOSITION D'UN BILLET
-   Le modèle est décodé une seule fois ; le même canvas est réutilisé
-   pour chaque billet (beaucoup plus rapide et léger en mémoire).
 ============================================================ */
 const NUM_FONT = 'ui-monospace, "SF Mono", Menlo, Consolas, "Courier New", monospace';
 
@@ -904,6 +904,12 @@ async function createComposer(modelDataUrl, zonesIn) {
   };
 }
 
+/**
+ * Dessin du QR — API qrcode-generator
+ *   qrcode(typeNumber, eccLevel) → objet
+ *   .addData(text) / .make() / .getModuleCount() / .isDark(row, col)
+ * Rendu module-par-module : bords nets, pas de flou, QR jamais déformé.
+ */
 async function drawQr(ctx, text, z) {
   // Fond blanc sur toute la zone
   ctx.fillStyle = '#FFFFFF';
@@ -913,11 +919,19 @@ async function drawQr(ctx, text, z) {
   const QUIET = 2; // modules blancs autour du QR
 
   let qr = null;
-  try { qr = QRCode.create(text, { errorCorrectionLevel: 'M' }); } catch (_) {}
+  try {
+    if (typeof window.qrcode === 'function') {
+      qr = window.qrcode(0, 'M'); // 0 = détection auto du type
+      qr.addData(text);
+      qr.make();
+    }
+  } catch (err) {
+    console.warn('QR generation failed:', err);
+    qr = null;
+  }
 
-  if (qr && qr.modules) {
-    // Dessin module par module, avec des cellules entières : bords nets, QR jamais déformé
-    const n = qr.modules.size;
+  if (qr) {
+    const n = qr.getModuleCount();
     const cells = n + QUIET * 2;
     const cell = Math.max(1, Math.floor(side / cells));
     const size = cell * cells;
@@ -926,20 +940,18 @@ async function drawQr(ctx, text, z) {
     ctx.fillStyle = '#000000';
     for (let r = 0; r < n; r++) {
       for (let c = 0; c < n; c++) {
-        if (qr.modules.get(r, c)) {
+        if (qr.isDark(r, c)) {
           ctx.fillRect(ox + (c + QUIET) * cell, oy + (r + QUIET) * cell, cell, cell);
         }
       }
     }
   } else {
-    // Repli si l'API bas niveau n'est pas disponible
-    const c = document.createElement('canvas');
-    await QRCode.toCanvas(c, text, {
-      width: Math.round(side), margin: QUIET, errorCorrectionLevel: 'M',
-      color: { dark: '#000000', light: '#FFFFFF' }
-    });
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(c, z.x + (z.w - side) / 2, z.y + (z.h - side) / 2, side, side);
+    // Repli visuel si la lib n'est pas dispo (ne devrait pas arriver)
+    ctx.fillStyle = '#CC0000';
+    ctx.font = 'bold 12px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('QR indisponible', z.x + z.w / 2, z.y + z.h / 2);
   }
 }
 
@@ -1002,7 +1014,6 @@ async function generateTickets() {
     const contentType = file.type ||
       (ext === 'pdf' ? 'application/pdf' : ext === 'png' ? 'image/png' : 'image/jpeg');
 
-    // 1. Upload du modèle
     setGenProgress(8, 'Envoi du modèle…');
     const { error: upErr } = await sb.storage.from('models').upload(
       storagePath, file, { cacheControl: '3600', upsert: false, contentType }
@@ -1010,7 +1021,6 @@ async function generateTickets() {
     if (upErr) throw upErr;
     uploaded.push(storagePath);
 
-    // 1b. Miniature (non bloquante)
     let thumbPath = null;
     try {
       const thumb = await makeThumbBlob(wizardData.modelDataUrl);
@@ -1021,7 +1031,6 @@ async function generateTickets() {
       if (!tErr) { thumbPath = tp; uploaded.push(tp); }
     } catch (e) { console.warn('Miniature ignorée', e); }
 
-    // 2. Événement
     setGenProgress(18, 'Enregistrement de l\'événement…');
     const { data: eventData, error: evErr } = await sb.from('events').insert({
       owner_id: state.user.id,
@@ -1037,7 +1046,6 @@ async function generateTickets() {
     if (evErr) throw evErr;
     createdEventId = eventData.id;
 
-    // 3. Billets (numérotation et jetons générés côté serveur)
     const total = wizardData.count;
     setGenProgress(25, 'Génération des billets…');
     await createTicketsRpc(createdEventId, total, (done) => {
@@ -1056,7 +1064,6 @@ async function generateTickets() {
     window.__lastGeneratedEventId = createdEventId;
   } catch (err) {
     console.error(err);
-    // Annulation propre : on ne laisse ni événement à moitié rempli ni fichier orphelin
     try {
       if (createdEventId) await sb.from('events').delete().eq('id', createdEventId);
       if (uploaded.length) await sb.storage.from('models').remove(uploaded);
@@ -1150,7 +1157,7 @@ async function loadTickets(reset) {
 
   const { data, error } = await q;
   if (error) throw error;
-  if (reqId !== ticketsReq) return; // une requête plus récente est en cours
+  if (reqId !== ticketsReq) return;
   const rows = data || [];
   state.currentTickets = reset ? rows : state.currentTickets.concat(rows);
   state.ticketsHasMore = rows.length === TICKETS_PAGE;
@@ -1198,7 +1205,6 @@ function renderTicketRows() {
     tr.dataset.num = t.num;
     const badgeClass = t.status === 'used' ? 'used' : 'valid';
     const badgeLabel = t.status === 'used' ? '● Utilisé' : t.status === 'invalid' ? '● Annulé' : '● Valide';
-    // Le jeton est secret (il figure dans le QR) : on n'en montre que le début
     const maskedToken = escapeHtml(String(t.token).slice(0, 4)) + '••••••••';
     tr.innerHTML = `
       <td class="mono">${escapeHtml(t.num)}</td>
@@ -1329,7 +1335,6 @@ function renderHistory() {
     const item = document.createElement('div');
     item.className = 'history-item';
     const dotClass = s.result === 'valid' ? 'ok' : s.result === 'used' ? 'ko' : 'warn';
-    // On n'affiche jamais le jeton secret : seulement le numéro
     const label = s.num || String(s.input || '').split('|')[0];
     item.innerHTML = `
       <div class="history-dot ${dotClass}"></div>
@@ -1377,7 +1382,6 @@ async function doScan(input) {
       title = 'BILLET VALIDE';
       sub = data.num;
       state.stats.used++;
-      // Met à jour la ligne si elle est affichée dans la liste
       const t = state.currentTickets.find(x => x.num === data.num);
       if (t) { t.status = 'used'; t.scanned_at = new Date().toISOString(); }
     } else if (data.result === 'used') {
@@ -1433,7 +1437,6 @@ function showScanResult(type, title, sub) {
 
 /* ============================================================
    SCANNER CAMÉRA
-   BarcodeDetector (natif) quand il existe, sinon jsQR.
 ============================================================ */
 const camera = {
   active: false,
@@ -1516,9 +1519,7 @@ async function cameraLoop() {
         if (res) code = res.data;
       }
     }
-  } catch (err) {
-    // une image illisible ne doit pas arrêter la boucle
-  }
+  } catch (err) { /* image illisible */ }
 
   if (code) {
     const now = Date.now();
@@ -1537,7 +1538,6 @@ $('btn-camera').addEventListener('click', () => {
   else startCamera();
 });
 
-// Coupe la caméra quand l'onglet du navigateur passe en arrière-plan
 document.addEventListener('visibilitychange', () => {
   if (document.hidden && camera.active) stopCamera();
 });
@@ -1575,7 +1575,6 @@ async function exportPDF() {
   setGenProgress(2, 'Téléchargement du modèle…');
 
   try {
-    // 1. Modèle : on le télécharge puis on le rend exactement comme à l'import
     const { data: signed, error: sErr } = await sb.storage
       .from('models').createSignedUrl(ev.model_path, 3600);
     if (sErr) throw sErr;
@@ -1588,12 +1587,10 @@ async function exportPDF() {
     const model = await renderModel(blob, isPdfPath(ev.model_path));
     const composer = await createComposer(model.dataUrl, ev.zones);
 
-    // 2. Tous les billets (pagination : l'API plafonne à 1000 lignes par requête)
     setGenProgress(6, 'Chargement des billets…');
     const tickets = await fetchAllTickets(ev.id, (n) => setGenProgress(6, `Chargement des billets… ${n}`));
     if (tickets.length === 0) throw new Error('Aucun billet à exporter');
 
-    // 3. Composition — un fichier PDF par paquet de PDF_CHUNK billets (mémoire maîtrisée)
     const { jsPDF } = window.jspdf;
     const W = composer.width, H = composer.height;
     const orientation = W > H ? 'landscape' : 'portrait';
@@ -1614,14 +1611,14 @@ async function exportPDF() {
 
         const done = p * PDF_CHUNK + i + 1;
         setGenProgress(8 + Math.round((done / total) * 91), `${done}/${total} billets…`);
-        if (i % 4 === 0) await sleep(0); // laisse respirer l'interface
+        if (i % 4 === 0) await sleep(0);
       }
 
       const name = parts === 1
         ? `${base}_${total}_billets.pdf`
         : `${base}_${slice[0].num}_a_${slice[slice.length - 1].num}.pdf`;
       pdf.save(name);
-      if (p < parts - 1) await sleep(900); // évite le blocage des téléchargements multiples
+      if (p < parts - 1) await sleep(900);
     }
 
     closeGen();
@@ -1636,3 +1633,5 @@ async function exportPDF() {
     exporting = false;
   }
 }
+
+})(); /* fin du boot async */
